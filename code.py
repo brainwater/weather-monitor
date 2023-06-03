@@ -74,60 +74,64 @@ def initRain():
         rainIn = None
         return False, rainIn
 
-def publish_sensor(mqtt_client):
-    discovery_prefix = "homeassistant"
-    component = "sensor"
-    object_id = "temperature"
-    topic = discovery_prefix + "/" + component + "/" + object_id + "/config"
+def getTopic(sensorType, postfix="/state"):
+    return "homeassistant/sensor/" + secrets["topic_prefix"] + sensorType + postfix
+
+def publishPrecipitationSensor(mqtt_client):
+    topic = getTopic("precipitation", "/config")
     payload = {
-        "name": "Temperature",
+        "name": secrets['name_prefix'] + "Precipitation",
+        "device_class": "precipitation",
+        "state_topic": getTopic("precipitation"),
+        "unit_of_measurement": "mm",
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "unique_id": secrets['topic_prefix'] + "raingauge",
+        "suggested_display_precision": "1",
+        "value_template": "{{ value_json.precipitation | round(1) }}"}
+    mqtt_client.publish(topic, json.dumps(payload))
+
+def publishSensors(mqtt_client):
+    topic = getTopic("temperature", "/config")
+    prefix = secrets['topic_prefix']
+    name_prefix = secrets['name_prefix']
+    payload = {
+        "name": name_prefix + "Temperature",
         "device_class": "temperature",
-        "state_topic": "homeassistant/sensor/temperature/state",
+        "state_topic": getTopic("temperature"),
         "unit_of_measurement": "°C",
         "expire_after": EXPIRE_DELAY,
         "payload_available": "online",
         "payload_not_available": "offline",
-        "unique_id": "outsidetemperaturegauge",
+        "unique_id": prefix + "temperaturegauge",
         "suggested_display_precision": "1",
         "value_template": "{{ value_json.temperature | round(1) }}"}
     mqtt_client.publish(topic, json.dumps(payload))
-    topic = discovery_prefix + "/" + component + "/humidity/config"
+    topic = getTopic("humidity", "/config")
     payload = {
-        "name": "Humidity",
+        "name": name_prefix + "Humidity",
         "device_class": "humidity",
-        "state_topic": "homeassistant/sensor/humidity/state",
+        "state_topic": getTopic("humidity"),
         "unit_of_measurement": "%rH",
         "expire_after": EXPIRE_DELAY,
         "payload_available": "online",
         "payload_not_available": "offline",
-        "unique_id": "humiditygauge",
+        "unique_id": prefix + "humiditygauge",
         "suggested_display_precision": "1",
         "value_template": "{{ value_json.humidity | round(1) }}"}
     mqtt_client.publish(topic, json.dumps(payload))
-    topic = discovery_prefix + "/" + component + "/pressure/config"
+    topic = getTopic("pressure", "/config")
     payload = {
-        "name": "Pressure",
+        "name": name_prefix + "Pressure",
         "device_class": "pressure",
-        "state_topic": "homeassistant/sensor/pressure/state",
+        "state_topic": getTopic("pressure"),
         "unit_of_measurement": "hPa",
         "expire_after": EXPIRE_DELAY,
         "payload_available": "online",
         "payload_not_available": "offline",
-        "unique_id": "pressuregauge",
+        "unique_id": prefix + "pressuregauge",
         "suggested_display_precision": "1",
         "value_template": "{{ value_json.pressure | round(1) }}"}
-    mqtt_client.publish(topic, json.dumps(payload))
-    topic = discovery_prefix + "/" + component + "/precipitation/config"
-    payload = {
-        "name": "Precipitation",
-        "device_class": "precipitation",
-        "state_topic": "homeassistant/sensor/precipitation/state",
-        "unit_of_measurement": "mm",
-        "payload_available": "online",
-        "payload_not_available": "offline",
-        "unique_id": "raingauge",
-        "suggested_display_precision": "1",
-        "value_template": "{{ value_json.precipitation | round(1) }}"}
     mqtt_client.publish(topic, json.dumps(payload))
 
 def initMqtt():
@@ -174,10 +178,11 @@ def run():
         time.sleep(1)
         initialized, rainIn = initRain()
     state_topic = "homeassistant/sensor/temperature/state"
-    publish_sensor(mqtt_client)
+    publishSensors(mqtt_client)
     lastbmeupdate = 0
     lastRainIn = rainIn.value
     rainCount = 0
+    rainPublished = False
     _, bme = initBme()
     while True:
         if time.monotonic() > lastbmeupdate + PUBLISH_DELAY:
@@ -190,22 +195,24 @@ def run():
                 pressure = bme.pressure
                 output = {
                     "temperature": temperature}
-                mqtt_client.publish("homeassistant/sensor/temperature/state", json.dumps(output))
+                mqtt_client.publish(getTopic("temperature"), json.dumps(output))
                 output = {
                     "humidity": relative_humidity}
-                mqtt_client.publish("homeassistant/sensor/humidity/state", json.dumps(output))
+                mqtt_client.publish(getTopic("humidity"), json.dumps(output))
                 output = {
                     "pressure": pressure}
-                mqtt_client.publish("homeassistant/sensor/pressure/state", json.dumps(output))
+                mqtt_client.publish(getTopic("pressure"), json.dumps(output))
                 print("Published")
         rainVal = rainIn.value
         if rainVal != lastRainIn:
+            if not rainPublished:
+                publishPrecipitationSensor(mqtt_client)
             lastRainIn = rainVal
             rainCount += 1
             print(rainCount)
             output = {
                 "precipitation": rainCount / 3.467}
-            mqtt_client.publish("homeassistant/sensor/precipitation/state", json.dumps(output))
+            mqtt_client.publish(getTopic("precipitation"), json.dumps(output))
             
         time.sleep(SWITCH_DELAY)
 
