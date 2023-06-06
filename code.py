@@ -23,10 +23,9 @@ from adafruit_bme280 import basic as adafruit_bme280
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.fill((20, 0, 0))
 SWITCH_DELAY = 0.05
-PUBLISH_DELAY = 20
+PUBLISH_DELAY = 10
 EXPIRE_DELAY = 5*60
 MQTT_TOPIC = "state/temp-sensor"
-USE_DEEP_SLEEP = False
 
 def showFinish():
     while True:
@@ -64,19 +63,54 @@ def initBme():
         bme = None
         return False, bme
 
-def initRain():
+# TODO: Add board.A2 input which is the analog input for a rain drop sensor
+
+# Initialize the rain drop detection sensor
+def initRainDrop():
     try:
-        rainIn = digitalio.DigitalInOut(board.A0)
-        rainIn.direction = digitalio.Direction.INPUT
-        rainIn.pull = digitalio.Pull.UP
-        return True, rainIn
+        dropDIn = digitalio.DigitalInOut(board.A1)
+        dropDIn.direction = digitalio.Direction.INPUT
+        dropDIn.pull = digitalio.Pull.UP
+        return True, dropDIn
     except:
-        rainIn = None
-        return False, rainIn
+        return False, None
+    
+def isRaining(dropDIn):
+    return not dropDIn.value
+
+def rainDropOutput(dropDIn):
+    if isRaining(dropDIn):
+        output = {"state": "ON"}
+    else:
+        output = {"state": "OFF"}
+    return json.dumps(output)
+
+def initPrecipitation():
+    try:
+        precipitationIn = digitalio.DigitalInOut(board.A0)
+        precipitationIn.direction = digitalio.Direction.INPUT
+        precipitationIn.pull = digitalio.Pull.UP
+        return True, precipitationIn
+    except:
+        return False, None
 
 def getTopic(sensorType, postfix="/state"):
     return "homeassistant/sensor/" + secrets["topic_prefix"] + sensorType + postfix
+def getBinaryTopic(sensorType, postfix="/state"):
+    return "homeassistant/binary_sensor/" + secrets["topic_prefix"] + sensorType + postfix
 
+def publishRainDropSensor(mqtt_client):
+    topic = getBinaryTopic("rain_drop", "/config")
+    payload = {
+        "name": secrets['name_prefix'] + "Rain Drop",
+        "device_class": "moisture",
+        "state_topic": getBinaryTopic("rain_drop"),
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "expire_after": EXPIRE_DELAY,
+        "unique_id": secrets['topic_prefix'] + "raindropsensor",
+        "value_template": "{{ value_json.state }}"}
+    mqtt_client.publish(topic, json.dumps(payload))
 def publishPrecipitationSensor(mqtt_client):
     topic = getTopic("precipitation", "/config")
     payload = {
@@ -172,20 +206,33 @@ def run():
         print("Retry mqtt")
         time.sleep(1)
         initialized, mqtt_client = initMqtt()
-    initialized, rainIn = initRain()
+    initialized, precipitationIn = initPrecipitation()
     while not initialized:
-        print("Retry Rain")
+        print("Retry Precipitation")
         time.sleep(1)
-        initialized, rainIn = initRain()
+        initialized, precipitationIn = initPrecipitation()
+    initialized, dropDIn = initRainDrop()
+    while not initialized:
+        print("Retry Rain Drop")
+        time.sleep(1)
+        initialized, dropDIn = initRainDrop()
     state_topic = "homeassistant/sensor/temperature/state"
     publishSensors(mqtt_client)
     lastbmeupdate = 0
-    lastRainIn = rainIn.value
+    lastPrecipitationIn = precipitationIn.value
     rainCount = 0
     rainPublished = False
+    dropPublished = False
+    lastDropValue = dropDIn.value
     _, bme = initBme()
     while True:
         if time.monotonic() > lastbmeupdate + PUBLISH_DELAY:
+            if not dropPublished and dropDIn.value != lastDropValue:
+                    publishRainDropSensor(mqtt_client)
+                    dropPublished = True
+            if dropPublished:
+                print(rainDropOutput(dropDIn))
+                mqtt_client.publish(getBinaryTopic("rain_drop"), rainDropOutput(dropDIn))
             if bme is None:
                 _, bme = initBme()
             else:
@@ -203,26 +250,17 @@ def run():
                     "pressure": pressure}
                 mqtt_client.publish(getTopic("pressure"), json.dumps(output))
                 print("Published")
-        rainVal = rainIn.value
-        if rainVal != lastRainIn:
+        precipitationVal = precipitationIn.value
+        if precipitationVal != lastPrecipitationIn:
             if not rainPublished:
                 publishPrecipitationSensor(mqtt_client)
-            lastRainIn = rainVal
+            lastPrecipitationIn = precipitationVal
             rainCount += 1
             print(rainCount)
             output = {
                 "precipitation": rainCount / 3.467}
             mqtt_client.publish(getTopic("precipitation"), json.dumps(output))
-            
+                
         time.sleep(SWITCH_DELAY)
-
-        #if USE_DEEP_SLEEP:
-        #    mqtt_client.disconnect()
-        #    pause = alarm.time.TimeAlarm(monotonic_time=time.monotonic() + PUBLISH_DELAY)
-        #    alarm.exit_and_deep_sleep_until_alarms(pause)
-        #else:
-        #    last_update = time.monotonic()
-        #    while time.monotonic() < last_update + PUBLISH_DELAY:
-        #        mqtt_client.loop()
 while True:
     run()
