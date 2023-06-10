@@ -23,7 +23,8 @@ from adafruit_bme280 import basic as adafruit_bme280
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 pixel.fill((20, 0, 0))
 SWITCH_DELAY = 0.05
-PUBLISH_DELAY = 10
+UPDATE_DELAY = 2
+ADVERTISE_DELAY = 6*60
 EXPIRE_DELAY = 5*60
 MQTT_TOPIC = "state/temp-sensor"
 
@@ -85,6 +86,13 @@ def rainDropOutput(dropDIn):
         output = {"state": "OFF"}
     return json.dumps(output)
 
+def occupancyOutput(occupancyIn):
+    if occupancyIn.value:
+        output = {"state": "ON"}
+    else:
+        output = {"state": "OFF"}
+    return json.dumps(output)
+
 def initPrecipitation():
     try:
         precipitationIn = digitalio.DigitalInOut(board.A0)
@@ -92,6 +100,18 @@ def initPrecipitation():
         precipitationIn.pull = digitalio.Pull.UP
         return True, precipitationIn
     except:
+        return False, None
+
+def initOccupancy():
+    try:
+        inPin = digitalio.DigitalInOut(board.A3)
+        inPin.direction = digitalio.Direction.INPUT
+        inPin.pull = digitalio.Pull.DOWN
+        # Don't need uart unless I'm getting more detailed info or changing settings
+        #uart = busio.UART(board.TX, board.RX, baudrate=115200, bits=8)
+        return True, inPin
+    except:
+        print("Error initializing occupancy sensor!")
         return False, None
 
 def getTopic(sensorType, postfix="/state"):
@@ -124,8 +144,19 @@ def publishPrecipitationSensor(mqtt_client):
         "suggested_display_precision": "1",
         "value_template": "{{ value_json.precipitation | round(1) }}"}
     mqtt_client.publish(topic, json.dumps(payload))
-
-def publishSensors(mqtt_client):
+def publishOccupancySensor(mqtt_client):
+    topic = getBinaryTopic("occupancy", "/config")
+    payload = {
+        "name": secrets['name_prefix'] + "Occupancy",
+        "device_class": "occupancy",
+        "state_topic": getBinaryTopic("occupancy"),
+        "payload_available": "online",
+        "payload_not_available": "offline",
+        "expire_after": EXPIRE_DELAY,
+        "unique_id": secrets['topic_prefix'] + "raindropsensor",
+        "value_template": "{{ value_json.state }}"}
+    mqtt_client.publish(topic, json.dumps(payload))    
+def publishBMESensors(mqtt_client):
     topic = getTopic("temperature", "/config")
     prefix = secrets['topic_prefix']
     name_prefix = secrets['name_prefix']
@@ -190,6 +221,107 @@ def initMqtt():
         mqtt_client = None
         return False, None
 
+def runBME(bme, lastbmeupdate, lastbmeadvertised, mqtt_client):
+    if time.monotonic() > lastbmeadvertised + ADVERTISE_DELAY:
+        lastbmeadvertised = time.monotonic()
+        if bme is None:
+            _, bme = initBme()
+        if bme is not None:
+            publishBMESensors(mqtt_client)
+    if bme is not None and time.monotonic() > lastbmeupdate + UPDATE_DELAY:
+        temperature = bme.temperature
+        relative_humidity = bme.relative_humidity
+        pressure = bme.pressure
+        output = {
+            "temperature": temperature}
+        mqtt_client.publish(getTopic("temperature"), json.dumps(output))
+        output = {
+            "humidity": relative_humidity}
+        mqtt_client.publish(getTopic("humidity"), json.dumps(output))
+        output = {
+            "pressure": pressure}
+        mqtt_client.publish(getTopic("pressure"), json.dumps(output))
+        print("Published")
+        lastbmeupdate = time.monotonic()
+    return bme, lastbmeupdate, lastbmeadvertised
+
+def runDrop(dropDIn, lastdropupdate, lastdropadvertised, lastDropValue, dropPublished, mqtt_client):
+    if not dropPublished:
+        if dropDIn is None:
+            # Initialize rain drop sensor
+            _, dropDIn = initRainDrop()
+            if dropDIn is not None:
+                lastDropValue = dropDIn.value
+        elif lastDropValue != dropDIn.value:
+            # Rain Drop sensor detected a change, indicating the sensor is hooked up
+            print("Decteded first change of rain drop sensor, starting advertising!")
+            publishRainDropSensor(mqtt_client)
+            dropPublished = True
+    if dropPublished and time.monotonic() > lastdropadvertised + ADVERTISE_DELAY:
+        # Advertise rain drop sensor with autodiscovery periodically
+        print("Readvertising rain drop sensor")
+        publishRainDropSensor(mqtt_client)
+        lastdropadvertised = time.monotonic()
+    if dropPublished and time.monotonic() > lastdropupdate + UPDATE_DELAY:
+        # Do regular update of rain drop sensor value
+        print(rainDropOutput(dropDIn))
+        mqtt_client.publish(getBinaryTopic("rain_drop"), rainDropOutput(dropDIn))
+        lastdropupdate = time.monotonic()
+    return dropDIn, lastdropupdate, lastdropadvertised, lastDropValue, dropPublished
+
+def runPrecipitation(precipitationIn, lastPrecipitationUpdate, lastPrecipitationAdvertised, precipitationPublished, rainCount, lastPrecipitationIn, mqtt_client):
+    if precipitationIn is None:
+        _, precipitationIn = initPrecipitation()
+        lastPrecipitationIn = precipitationIn.value
+    if precipitationIn is not None:
+        if precipitationPublished and time.monotonic() > lastPrecipitationAdvertised + ADVERTISE_DELAY:
+            print("Readvertising Precipitation sensor")
+            publishPrecipitationSensor(mqtt_client)
+            lastPrecipitationAdvertised = time.monotonic()
+        precipitationVal = precipitationIn.value
+        if precipitationVal != lastPrecipitationIn:
+            if not precipitationPublished:
+                publishPrecipitationSensor(mqtt_client)
+                precipitationPublished = True
+            lastPrecipitationIn = precipitationVal
+            rainCount += 1
+            print(rainCount)
+            output = {
+                "precipitation": rainCount / 3.467}
+            mqtt_client.publish(getTopic("precipitation"), json.dumps(output))
+        if precipitationPublished and time.monotonic() > lastPrecipitationUpdate + UPDATE_DELAY:
+            output = {
+                "precipitation": rainCount / 3.467}
+            mqtt_client.publish(getTopic("precipitation"), json.dumps(output))
+            lastPrecipitationUpdate = time.monotonic()
+    return precipitationIn, lastPrecipitationUpdate, lastPrecipitationAdvertised, precipitationPublished, rainCount, lastPrecipitationIn
+
+def runOccupancy(occupancyIn, lastOccupancyUpdate: int, lastOccupancyAdvertised: int, occupancyPublished: bool, lastOccupancyValue: bool, mqtt_client: MQTT.MQTT):
+    if not occupancyPublished:
+        if occupancyIn is None:
+            # Initialize occupancy sensor
+            print("Initializing Occupancy Sensor")
+            _, occupancyIn = initOccupancy()
+            if occupancyIn is not None:
+                lastOccupancyValue = occupancyIn.value
+        elif lastOccupancyValue != occupancyIn.value:
+            # Occupancy sensor detected a change, indicating the sensor is hooked up
+            print("Decteded first change of Occupancy sensor, starting advertising!")
+            publishOccupancySensor(mqtt_client)
+            occupancyPublished = True
+    if occupancyPublished and time.monotonic() > lastOccupancyAdvertised + ADVERTISE_DELAY:
+        # Advertise rain drop sensor with autodiscovery periodically
+        print("Readvertising occupancy sensor")
+        publishOccupancySensor(mqtt_client)
+        lastOccupancyAdvertised = time.monotonic()
+    if occupancyPublished and time.monotonic() > lastOccupancyUpdate + UPDATE_DELAY:
+        # Do regular update of rain drop sensor value
+        print(occupancyOutput(occupancyIn))
+        mqtt_client.publish(getBinaryTopic("occupancy"), occupancyOutput(occupancyIn))
+        lastOccupancyUpdate = time.monotonic()
+    return occupancyIn, lastOccupancyUpdate, lastOccupancyAdvertised, occupancyPublished, lastOccupancyValue
+        
+
 def run():
     needRetry = True
     while needRetry:
@@ -212,55 +344,69 @@ def run():
         time.sleep(1)
         initialized, precipitationIn = initPrecipitation()
     initialized, dropDIn = initRainDrop()
-    while not initialized:
-        print("Retry Rain Drop")
-        time.sleep(1)
-        initialized, dropDIn = initRainDrop()
     state_topic = "homeassistant/sensor/temperature/state"
-    publishSensors(mqtt_client)
     lastbmeupdate = 0
+    lastbmeadvertised = 0
     lastPrecipitationIn = precipitationIn.value
+    lastdropupdate = 0
+    lastdropadvertised = 0
+    dropDIn = None
     rainCount = 0
-    rainPublished = False
+    precipitationPublished = False
+    lastPrecipitationUpdate = 0
+    lastPrecipitationAdvertised = 0
     dropPublished = False
-    lastDropValue = dropDIn.value
+    lastDropValue = None
+    occupancyIn = None
+    lastOccupancyUpdate = 0
+    lastOccupancyAdvertised = 0
+    lastOccupancyValue = True
+    occupancyPublished = False
+
     _, bme = initBme()
     while True:
-        if time.monotonic() > lastbmeupdate + PUBLISH_DELAY:
-            if not dropPublished and dropDIn.value != lastDropValue:
-                    publishRainDropSensor(mqtt_client)
-                    dropPublished = True
-            if dropPublished:
-                print(rainDropOutput(dropDIn))
-                mqtt_client.publish(getBinaryTopic("rain_drop"), rainDropOutput(dropDIn))
-            if bme is None:
-                _, bme = initBme()
-            else:
-                lastbmeupdate = time.monotonic()
-                temperature = bme.temperature
-                relative_humidity = bme.relative_humidity
-                pressure = bme.pressure
-                output = {
-                    "temperature": temperature}
-                mqtt_client.publish(getTopic("temperature"), json.dumps(output))
-                output = {
-                    "humidity": relative_humidity}
-                mqtt_client.publish(getTopic("humidity"), json.dumps(output))
-                output = {
-                    "pressure": pressure}
-                mqtt_client.publish(getTopic("pressure"), json.dumps(output))
-                print("Published")
-        precipitationVal = precipitationIn.value
-        if precipitationVal != lastPrecipitationIn:
-            if not rainPublished:
-                publishPrecipitationSensor(mqtt_client)
-            lastPrecipitationIn = precipitationVal
-            rainCount += 1
-            print(rainCount)
-            output = {
-                "precipitation": rainCount / 3.467}
-            mqtt_client.publish(getTopic("precipitation"), json.dumps(output))
-                
+        bme, lastbmeupdate, lastbmeadvertised = runBME(bme, lastbmeupdate, lastbmeadvertised, mqtt_client)
+        dropDIn, lastdropupdate, lastdropadvertised, lastDropValue, dropPublished = runDrop(dropDIn, lastdropupdate, lastdropadvertised, lastDropValue, dropPublished, mqtt_client)
+        precipitationIn, lastPrecipitationUpdate, lastPrecipitationAdvertised, precipitationPublished, rainCount, lastPrecipitationIn = runPrecipitation(precipitationIn, lastPrecipitationUpdate, lastPrecipitationAdvertised, precipitationPublished, rainCount, lastPrecipitationIn, mqtt_client)
+        occupancyIn, lastOccupancyUpdate, lastOccupancyAdvertised, occupancyPublished, lastOccupancyValue = runOccupancy(occupancyIn, lastOccupancyUpdate, lastOccupancyAdvertised, occupancyPublished, lastOccupancyValue, mqtt_client)
         time.sleep(SWITCH_DELAY)
-while True:
-    run()
+run()
+# SPDX-FileCopyrightText: 2018 Kattni Rembor for Adafruit Industries
+#
+# SPDX-License-Identifier: MIT
+
+"""CircuitPython Essentials UART Serial example"""
+"""import time
+import board
+#import inspect
+#import pydoc
+import busio
+import digitalio
+from analogio import AnalogIn"""
+
+#analogIn = AnalogIn(board.A0)
+
+# For most CircuitPython boards:
+"""inPin = digitalio.DigitalInOut(board.A0)
+inPin.direction = digitalio.Direction.INPUT
+inPin.pull = digitalio.Pull.DOWN"""
+# For QT Py M0:
+# led = digitalio.DigitalInOut(board.SCK)
+#led.direction = digitalio.Direction.OUTPUT
+
+#uart = busio.UART(board.TX, board.RX, baudrate=115200, bits=8)
+"""data = uart.read(256)
+uart.write(b"get_all\r\n")
+uart.write(b"th1=1200\r\n")
+uart.write(b"th2=2500\r\n")
+uart.write(b"get_all\r\n")
+print(data.decode("ascii").strip())"""
+"""while True:
+    print(inPin.value)
+    #time.sleep(0.1)
+    #data = uart.read(64)  # read up to 32 bytes
+    data = uart.readline()
+    # print(data)  # this is a bytearray type
+    print(data.decode("ascii").strip())
+
+"""
