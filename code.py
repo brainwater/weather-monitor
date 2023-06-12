@@ -26,6 +26,7 @@ from BMESensorLoop import BMESensorLoop
 from RainDropSensorLoop import RainDropSensorLoop
 from PrecipitationSensorLoop import PrecipitationSensorLoop
 from OccupancySensorLoop import OccupancySensorLoop
+from BatteryLevelLoop import BatteryLevelLoop
 
 from config import config
 
@@ -102,6 +103,8 @@ async def runAsync():
         toRun.append(PrecipitationSensorLoop(mqtt_client, config['precipitation']))
     if 'occupancy' in config:
         toRun.append(OccupancySensorLoop(mqtt_client, config['occupancy']))
+    if 'battery' in config:
+        toRun.append(BatteryLevelLoop(mqtt_client, config['battery']))
     toRun = [i.run() for i in toRun]
     await asyncio.gather(
         *toRun,

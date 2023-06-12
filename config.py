@@ -11,5 +11,7 @@ config = {
     },
     'occupancy': {
         'pin': board.A3
+    },
+    'battery': {
     }
 }
