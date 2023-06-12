@@ -1,13 +1,5 @@
-# SPDX-FileCopyrightText: 2021 Melissa LeBlanc-Williams for Adafruit Industries
-#
-# SPDX-License-Identifier: MIT
 
-"""
-SHTC3 Temperature/Humidity Sensor Example for
-using CircuitPython with Home Assistant
-Author: Melissa LeBlanc-Williams for Adafruit Industries
-"""
-print("hello")
+
 import time
 import ssl
 import json
@@ -45,10 +37,6 @@ def showError():
         time.sleep(0.5)
         pixel.fill((0, 0, 0))
         time.sleep(0.5)
-# Add a secrets.py to your filesystem that has a dictionary called secrets with "ssid" and
-# "password" keys with your WiFi credentials. DO NOT share that file or commit it into Git or other
-# source control.
-# pylint: disable=no-name-in-module,wrong-import-order
 try:
     from secrets import secrets
 except ImportError:
