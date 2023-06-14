@@ -66,15 +66,24 @@ def initMqtt():
         mqtt_client = None
         return False, None
 
-async def runAsync():
-    needRetry = True
-    while needRetry:
+
+def connectWifi():
+    while not wifi.radio.connected:
+        pixel.fill((50,0,0))
         try:
-            wifi.radio.connect(secrets["ssid"], secrets["password"])
-            needRetry = False
+            wifi.radio.connect(secrets['ssid'], secrets['password'])
         except Exception as ex:
             print(ex)
-            time.sleep(1)
+            time.sleep(0.5)
+    pixel.fill((0,0,0))
+
+async def wifiLoop():
+    while True:
+        connectWifi()
+        await asyncio.sleep(10)
+
+async def runAsync():
+    connectWifi()
     pixel.fill((0,0,0))
     print("Connected to %s!" % secrets["ssid"])
     initialized, mqtt_client = initMqtt()
@@ -94,6 +103,7 @@ async def runAsync():
     if 'battery' in config:
         toRun.append(BatteryLevelLoop(mqtt_client, config['battery']))
     toRun = [i.run() for i in toRun]
+    toRun.append(wifiLoop())
     await asyncio.gather(
         *toRun,
         return_exceptions=True)

@@ -1,5 +1,6 @@
 import asyncio
 from secrets import secrets
+import wifi
 
 class SensorLoop:
     INIT_DELAY = 60
@@ -17,24 +18,34 @@ class SensorLoop:
     async def initSensor(self):
         raise NotImplemented()
     
-    async def advertiseSensor(self):
+    def advertiseSensor(self):
         raise NotImplemented()
     
-    async def sendValue(self):
+    def sendValue(self):
         raise NotImplemented()
     
     async def background(self):
         pass
+
+    def checkConnection(self) -> bool:
+        # TODO: Add a check for the home assistant connection
+        return wifi.radio.connected
     
     # TODO: Make this exit if the sendBMEValue loop exits, so we can refresh bme
     async def advertiseLoop(self):
         while True:
-            self.advertiseSensor()
+            if self.checkConnection():
+                self.advertiseSensor()
+            else:
+                print("Disconnected! Skipping advertise.")
             await asyncio.sleep(self.ADVERTISE_DELAY)
     
     async def sendValueLoop(self):
         while True:
-            self.sendValue()
+            if self.checkConnection():
+                self.sendValue()
+            else:
+                print("Disconnected! Skipping sendValue.")
             await asyncio.sleep(self.UPDATE_DELAY)
     
     async def run(self):
