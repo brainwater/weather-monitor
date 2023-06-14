@@ -4,7 +4,7 @@ from secrets import secrets
 class SensorLoop:
     INIT_DELAY = 60
     SWITCH_DELAY = 0.05
-    UPDATE_DELAY = 20
+    UPDATE_DELAY = 30
     ADVERTISE_DELAY = 60
     EXPIRE_DELAY = 5*60
     mqtt_client = None
