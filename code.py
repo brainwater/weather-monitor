@@ -11,6 +11,7 @@ import socketpool
 import wifi
 import neopixel
 import countio
+import ipaddress
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 from adafruit_bme280 import basic as adafruit_bme280
 
@@ -45,6 +46,7 @@ except ImportError:
     raise
 
 def initMqtt():
+    pool = None
     try:
         print("Initializing Mqtt")
         # Create a socket pool
@@ -57,17 +59,45 @@ def initMqtt():
             password=secrets["mqtt_password"],
             socket_pool=pool,
             ssl_context=ssl.create_default_context(),
+            keep_alive=10
         )
         print("Attempting to connect to %s" % mqtt_client.broker)
         mqtt_client.connect()
-        return True, mqtt_client
+        return pool, mqtt_client
     except Exception as ex:
         print(ex)
         mqtt_client = None
-        return False, None
+        return pool, None
 
+def isConnected():
+    if not wifi.radio.connected:
+        return False
+    try:
+        sp = socketpool.SocketPool(wifi.radio)
+        addrinfo = sp.getaddrinfo("homeassistant.local", 1883, 0, sp.SOCK_STREAM)
+        print(addrinfo)
+        if addrinfo is not None:
+            ip = ipaddress.ip_address(addrinfo[-1][0])
+            if wifi.radio.ping(ip) is not None:
+                pixel.fill((0,0,0))
+                print("Connection is good!")
+                return True
+    except Exception as ex:
+        print(ex)
+        print("Unable to check wifi!")
+        return False
+    return False
 
 def connectWifi():
+    print("Checking/connecting wifi")
+    if isConnected():
+        return
+    pixel.fill((50,0,0))
+    print("Attempting to connect")
+    try:
+        wifi.radio.connect(secrets['ssid'], secrets['password'])
+    except Exception as ex:
+        print(ex)
     while not wifi.radio.connected:
         pixel.fill((50,0,0))
         try:
@@ -75,22 +105,53 @@ def connectWifi():
         except Exception as ex:
             print(ex)
             time.sleep(0.5)
-    pixel.fill((0,0,0))
+    if isConnected():
+        print("Connection successful!")
 
-async def wifiLoop():
+def mqttConnected(mqtt_client):
+    try:
+        resp = mqtt_client.ping()
+    except MQTT.MMQTTException as ex:
+        print(ex)
+        print("MQTTException when pinging server!")
+        return False
+    return mqtt_client.is_connected()
+
+async def mqttCheckLoop(mqtt_client):
     while True:
-        connectWifi()
+        isConnected = False
+        try:
+            isConnected = mqttConnected(mqtt_client)
+        except Exception as ex:
+            print(ex)
+            print("Exception when checking mqtt connection!")
+        print("Connected? ", isConnected)
+        if isConnected:
+            pixel.fill((0,0,0))
+        if not isConnected:
+            pixel.fill((50,0,0))
+            try:
+                connectWifi()
+                if wifi.radio.connected:
+                    mqtt_client.reconnect()
+                else:
+                    print("Wifi disconnected!")
+            except Exception as ex:
+                print(ex)
+                print("Exception when trying to reconnect!")
         await asyncio.sleep(10)
 
 async def runAsync():
     connectWifi()
     pixel.fill((0,0,0))
     print("Connected to %s!" % secrets["ssid"])
-    initialized, mqtt_client = initMqtt()
-    while not initialized:
+    pool, mqtt_client = initMqtt()
+    while mqtt_client is None:
         print("Retry mqtt")
         time.sleep(1)
-        initialized, mqtt_client = initMqtt()
+        pool, mqtt_client = initMqtt()
+    #sp = socketpool.SocketPool(wifi.radio)
+    #print(pool.getaddrinfo("homeassistant.local", 1883, 0, pool.SOCK_STREAM))
     toRun = []
     if 'bme' in config:
         toRun.append(BMESensorLoop(mqtt_client, config['bme']))
@@ -103,9 +164,10 @@ async def runAsync():
     if 'battery' in config:
         toRun.append(BatteryLevelLoop(mqtt_client, config['battery']))
     toRun = [i.run() for i in toRun]
-    toRun.append(wifiLoop())
+    toRun.append(mqttCheckLoop(mqtt_client))
     await asyncio.gather(
         *toRun,
         return_exceptions=True)
 
 asyncio.run(runAsync())
+showError()

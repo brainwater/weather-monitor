@@ -29,13 +29,16 @@ class SensorLoop:
 
     def checkConnection(self) -> bool:
         # TODO: Add a check for the home assistant connection
-        return wifi.radio.connected
+        return self.mqtt_client.is_connected()
     
     # TODO: Make this exit if the sendBMEValue loop exits, so we can refresh bme
     async def advertiseLoop(self):
         while True:
             if self.checkConnection():
-                self.advertiseSensor()
+                try:
+                    self.advertiseSensor()
+                except:
+                    print("Error when advertising sensor!")
             else:
                 print("Disconnected! Skipping advertise.")
             await asyncio.sleep(self.ADVERTISE_DELAY)
@@ -43,7 +46,10 @@ class SensorLoop:
     async def sendValueLoop(self):
         while True:
             if self.checkConnection():
-                self.sendValue()
+                try:
+                    self.sendValue()
+                except:
+                    print("Error when sending value for sensor!")
             else:
                 print("Disconnected! Skipping sendValue.")
             await asyncio.sleep(self.UPDATE_DELAY)
