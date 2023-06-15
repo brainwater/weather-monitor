@@ -70,33 +70,15 @@ def initMqtt():
         return pool, None
 
 def isConnected():
-    if not wifi.radio.connected:
-        return False
-    try:
-        sp = socketpool.SocketPool(wifi.radio)
-        addrinfo = sp.getaddrinfo("homeassistant.local", 1883, 0, sp.SOCK_STREAM)
-        print(addrinfo)
-        if addrinfo is not None:
-            ip = ipaddress.ip_address(addrinfo[-1][0])
-            if wifi.radio.ping(ip) is not None:
-                pixel.fill((0,0,0))
-                print("Connection is good!")
-                return True
-    except Exception as ex:
-        print(ex)
-        print("Unable to check wifi!")
-        return False
-    return False
+    return wifi.radio.connected
 
 def connectWifi():
     print("Checking/connecting wifi")
-    if isConnected():
-        return
-    pixel.fill((50,0,0))
     print("Attempting to connect")
     try:
         wifi.radio.connect(secrets['ssid'], secrets['password'])
     except Exception as ex:
+        pixel.fill((50,0,0))
         print(ex)
     while not wifi.radio.connected:
         pixel.fill((50,0,0))
@@ -105,10 +87,12 @@ def connectWifi():
         except Exception as ex:
             print(ex)
             time.sleep(0.5)
-    if isConnected():
+    if wifi.radio.connected:
         print("Connection successful!")
 
 def mqttConnected(mqtt_client):
+    if not wifi.radio.connected:
+        return False
     try:
         resp = mqtt_client.ping()
     except MQTT.MMQTTException as ex:
@@ -134,6 +118,8 @@ async def mqttCheckLoop(mqtt_client):
                 connectWifi()
                 if wifi.radio.connected:
                     mqtt_client.reconnect()
+                    if mqttConnected(mqtt_client):
+                        pixel.fill((0,0,0))
                 else:
                     print("Wifi disconnected!")
             except Exception as ex:

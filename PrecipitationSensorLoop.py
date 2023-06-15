@@ -36,7 +36,6 @@ class PrecipitationSensorLoop(SensorLoop):
         while precipitationValue == self.precipitationIn.value:
             await asyncio.sleep(self.SWITCH_DELAY)
         print("Detected first change on precipitation sensor")
-        #asyncio.create_task(self.watchPrecipitationSensor())
     
     def advertiseSensor(self):
         topic = self.getTopic("precipitation", "/config")
