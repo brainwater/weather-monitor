@@ -35,13 +35,30 @@ class BatteryLevelLoop(SensorLoop):
             "suggested_display_precision": "0",
             "value_template": "{{ value_json.battery | round(1) }}"}
         self.mqtt_client.publish(topic, json.dumps(payload))
+        topic = self.getTopic("batteryvoltage", "/config")
+        payload = {
+            "name": name_prefix + "Battery Voltage",
+            "device_class": "voltage",
+            "state_topic": self.getTopic("batteryvoltage"),
+            "unit_of_measurement": "V",
+            "expire_after": self.EXPIRE_DELAY,
+            "payload_available": "online",
+            "payload_not_available": "offline",
+            "unique_id": prefix + "batterygauge",
+            "suggested_display_precision": "2",
+            "value_template": "{{ value_json.batteryvoltage }}"}
+        self.mqtt_client.publish(topic, json.dumps(payload))
     
     def sendValue(self):
         battery = self.sensor.cell_percent
+        batteryvoltage = self.sensor.cell_voltage
         print(f"Battery voltage: {self.sensor.cell_voltage:.2f} Volts")
         print(f"Battery state  : {self.sensor.cell_percent:.1f} %")
         output = {
             "battery": battery}
         self.mqtt_client.publish(self.getTopic("battery"), json.dumps(output))
+        output = {
+            "batteryvoltage":  batteryvoltage}
+        self.mqtt_client.publish(self.getTopic("batteryvoltage"), json.dumps(output))
         print("Published Battery Value")
 
