@@ -30,13 +30,16 @@ class RainDropSensorLoop(SensorLoop):
             print("Problem with if statement")
             raise ex
         return json.dumps(output)
-    
+
+    def singleInitSensor(self):
+        print("Intializing Rain Drop Sensor")
+        self.dropDIn = digitalio.DigitalInOut(self.config['pin'])
+        self.dropDIn.direction = digitalio.Direction.INPUT
+        self.dropDIn.pull = digitalio.Pull.UP
     async def initSensor(self):
         while self.dropDIn is None:
             try:
-                self.dropDIn = digitalio.DigitalInOut(self.config['pin'])
-                self.dropDIn.direction = digitalio.Direction.INPUT
-                self.dropDIn.pull = digitalio.Pull.UP
+                self.singleInitSensor()
             except Exception as ex:
                 print("Error initializing Rain Drop sensor!")
                 print(ex)
@@ -65,6 +68,6 @@ class RainDropSensorLoop(SensorLoop):
     def sendValue(self):
         topic = self.getTopic("rain_drop")
         output = self.rainDropOutput()
-        self.mqtt_client.publish(topic, output)
+        self.mqtt_client.publish(topic, output, qos=1)
         print("Sent Rain Drop Value")
 

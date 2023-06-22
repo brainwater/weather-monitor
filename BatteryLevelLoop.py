@@ -7,12 +7,16 @@ from secrets import secrets
 
 class BatteryLevelLoop(SensorLoop):
     sensor = None
+
+    def singleInitSensor(self):
+        print("Initializing Battery Level")
+        i2c = board.STEMMA_I2C()
+        self.sensor = MAX17048(i2c)
+    
     async def initSensor(self):
         while self.sensor is None:
             try:
-                print("Initializing Battery Level")
-                i2c = board.STEMMA_I2C()
-                self.sensor = MAX17048(i2c)
+                self.singleInitSensor()
             except Exception as ex:
                 print("Error initializing Bettery Level Sensor")
                 print(ex)
@@ -48,7 +52,7 @@ class BatteryLevelLoop(SensorLoop):
             "suggested_display_precision": "2",
             "value_template": "{{ value_json.batteryvoltage }}"}
         self.mqtt_client.publish(topic, json.dumps(payload))
-    
+
     def sendValue(self):
         battery = self.sensor.cell_percent
         batteryvoltage = self.sensor.cell_voltage

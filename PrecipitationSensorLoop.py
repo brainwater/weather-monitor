@@ -1,4 +1,6 @@
 import asyncio
+import sys
+import alarm
 import board
 import digitalio
 import json
@@ -7,18 +9,45 @@ from secrets import secrets
 
 class PrecipitationSensorLoop(SensorLoop):
     precipitationIn = None
-    precipitationCount = 0
+    #precipitationCount = 0
     
     async def watchPrecipitationSensor(self):
         while True:
             lastPrecipitation = self.precipitationIn.value
             while lastPrecipitation == self.precipitationIn.value:
                 await asyncio.sleep(self.SWITCH_DELAY)
-            self.precipitationCount += 1
+            #self.precipitationCount += 1
+            self.incrementCount
+
+    def alarms(self):
+        pin_alarm = alarm.pin.PinAlarm(pin=self.config['pin'], value=False, pull=True)
+        return [pin_alarm]
 
     async def background(self):
         await self.watchPrecipitationSensor()
+
+    def incrementCount(self):
+        self.saveCount((self.countFromMemory() + 1) % ((2 ** 8) ** 4))
     
+    def countFromMemory(self):
+        if len(alarm.sleep_memory) < 4:
+            return 0
+        mem = alarm.sleep_memory[:4]
+        return int.from_bytes(mem, sys.byteorder)
+
+    def saveCount(self, count):
+        for i, b in enumerate(count.to_bytes(4, sys.byteorder)):
+            alarm.sleep_memory[i] = b
+
+    def singleInitSensor(self):
+        if alarm.wake_alarm is None:
+            return
+        if not isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
+            return
+        # Increment by 2 since the count is the count of the changes in pin state, with sleep we're only counting when it goes low
+        self.incrementCount()
+        self.incrementCount()
+        
     async def initSensor(self):
         while self.precipitationIn is None:
             try:
@@ -36,8 +65,12 @@ class PrecipitationSensorLoop(SensorLoop):
         while precipitationValue == self.precipitationIn.value:
             await asyncio.sleep(self.SWITCH_DELAY)
         print("Detected first change on precipitation sensor")
+        asyncio.create_task(self.watchPrecipitationSensor())
     
     def advertiseSensor(self):
+        # Don't publish unless we've sensed rain already
+        if self.countFromMemory() <= 0:
+            return
         topic = self.getTopic("precipitation", "/config")
         payload = {
             "name": secrets['name_prefix'] + "Precipitation",
@@ -54,7 +87,7 @@ class PrecipitationSensorLoop(SensorLoop):
     def sendValue(self):
         print("Sending Precipiation Value")
         output = {
-            "precipitation": self.precipitationCount / 3.467}
-        self.mqtt_client.publish(self.getTopic("precipitation"), json.dumps(output))
+            "precipitation": self.countFromMemory() / 3.467}
+        self.mqtt_client.publish(self.getTopic("precipitation"), json.dumps(output), qos=1)
         print("Sent Precipiation Value")
 

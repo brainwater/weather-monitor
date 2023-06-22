@@ -1,6 +1,5 @@
-
-
 import time
+import alarm
 import ssl
 import json
 import asyncio
@@ -11,10 +10,10 @@ import socketpool
 import wifi
 import neopixel
 import countio
-import ipaddress
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
 from adafruit_bme280 import basic as adafruit_bme280
 
+from SensorLoop import SensorLoop
 from BMESensorLoop import BMESensorLoop
 from RainDropSensorLoop import RainDropSensorLoop
 from PrecipitationSensorLoop import PrecipitationSensorLoop
@@ -46,7 +45,6 @@ except ImportError:
     raise
 
 def initMqtt():
-    pool = None
     try:
         print("Initializing Mqtt")
         # Create a socket pool
@@ -59,15 +57,14 @@ def initMqtt():
             password=secrets["mqtt_password"],
             socket_pool=pool,
             ssl_context=ssl.create_default_context(),
-            keep_alive=10
         )
         print("Attempting to connect to %s" % mqtt_client.broker)
         mqtt_client.connect()
-        return pool, mqtt_client
+        return mqtt_client
     except Exception as ex:
         print(ex)
         mqtt_client = None
-        return pool, None
+        return None
 
 def isConnected():
     return wifi.radio.connected
@@ -131,29 +128,64 @@ async def runAsync():
     connectWifi()
     pixel.fill((0,0,0))
     print("Connected to %s!" % secrets["ssid"])
-    pool, mqtt_client = initMqtt()
+    mqtt_client = initMqtt()
     while mqtt_client is None:
         print("Retry mqtt")
         time.sleep(1)
-        pool, mqtt_client = initMqtt()
-    #sp = socketpool.SocketPool(wifi.radio)
-    #print(pool.getaddrinfo("homeassistant.local", 1883, 0, pool.SOCK_STREAM))
-    toRun = []
+        mqtt_client = initMqtt()
+    sensors = []
     if 'bme' in config:
-        toRun.append(BMESensorLoop(mqtt_client, config['bme']))
+        sensors.append(BMESensorLoop(mqtt_client, config['bme']))
     if 'rain_drop' in config:
-        toRun.append(RainDropSensorLoop(mqtt_client, config['rain_drop']))
+        sensors.append(RainDropSensorLoop(mqtt_client, config['rain_drop']))
     if 'precipitation' in config:
-        toRun.append(PrecipitationSensorLoop(mqtt_client, config['precipitation']))
+        sensors.append(PrecipitationSensorLoop(mqtt_client, config['precipitation']))
     if 'occupancy' in config:
-        toRun.append(OccupancySensorLoop(mqtt_client, config['occupancy']))
+        sensors.append(OccupancySensorLoop(mqtt_client, config['occupancy']))
     if 'battery' in config:
-        toRun.append(BatteryLevelLoop(mqtt_client, config['battery']))
-    toRun = [i.run() for i in toRun]
-    toRun.append(mqttCheckLoop(mqtt_client))
+        sensors.append(BatteryLevelLoop(mqtt_client, config['battery']))
+    toRun = [i.run() for i in sensors]
     await asyncio.gather(
         *toRun,
         return_exceptions=True)
 
-asyncio.run(runAsync())
-showError()
+def singleRun():
+    connectWifi()
+    pixel.fill((0,0,0))
+    print("Connected to %s!" % secrets["ssid"])
+    mqtt_client = initMqtt()
+    while mqtt_client is None:
+        print("Retry mqtt")
+        time.sleep(1)
+        mqtt_client = initMqtt()
+    sensors = []
+    if 'bme' in config:
+        sensors.append(BMESensorLoop(mqtt_client, config['bme']))
+    if 'rain_drop' in config:
+        sensors.append(RainDropSensorLoop(mqtt_client, config['rain_drop']))
+    if 'precipitation' in config:
+        sensors.append(PrecipitationSensorLoop(mqtt_client, config['precipitation']))
+    #if 'occupancy' in config:
+    #    sensors.append(OccupancySensorLoop(mqtt_client, config['occupancy']))
+    if 'battery' in config:
+        sensors.append(BatteryLevelLoop(mqtt_client, config['battery']))
+
+    for sensor in sensors:
+        try:
+            sensor.singleRun()
+        except ValueError as ex:
+            print(ex)
+            print("Error with sensor " + str(sensor) + " so we're skipping")
+    mqtt_client.loop()
+    # HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
+    #time.sleep(0.5)
+    mqtt_client.deinit()
+    alarms = []
+    for sensor in sensors:
+        alarms += sensor.alarms()
+    alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+SensorLoop.UPDATE_DELAY))
+    alarm.exit_and_deep_sleep_until_alarms(*alarms)
+
+singleRun()
+#showError()
+#asyncio.run(runAsync())

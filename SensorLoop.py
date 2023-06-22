@@ -1,11 +1,10 @@
 import asyncio
 from secrets import secrets
-import wifi
 
 class SensorLoop:
     INIT_DELAY = 60
     SWITCH_DELAY = 0.05
-    UPDATE_DELAY = 30
+    UPDATE_DELAY = 20
     ADVERTISE_DELAY = 60
     EXPIRE_DELAY = 5*60
     mqtt_client = None
@@ -15,6 +14,12 @@ class SensorLoop:
         self.mqtt_client = mqtt_client
         self.config = config
 
+    def alarms(self):
+        return []
+
+    def singleInitSensor(self):
+        raise NotImplemented()
+        
     async def initSensor(self):
         raise NotImplemented()
     
@@ -26,12 +31,11 @@ class SensorLoop:
     
     async def background(self):
         pass
-
+    
     def checkConnection(self) -> bool:
         # TODO: Add a check for the home assistant connection
         return self.mqtt_client.is_connected()
-    
-    # TODO: Make this exit if the sendBMEValue loop exits, so we can refresh bme
+
     async def advertiseLoop(self):
         while True:
             if self.checkConnection():
@@ -61,6 +65,11 @@ class SensorLoop:
             self.advertiseLoop(),
             self.sendValueLoop(),
             return_exceptions=True)
+
+    def singleRun(self):
+        self.singleInitSensor()
+        self.advertiseSensor()
+        self.sendValue()
 
     def getTopic(self, sensorType, postfix="/state"):
         return "homeassistant/sensor/" + secrets["topic_prefix"] + sensorType + postfix

@@ -7,14 +7,18 @@ from secrets import secrets
 
 class BMESensorLoop(SensorLoop):
     bme = None
+
+    def singleInitSensor(self):
+            print("Initializing BME")
+            i2c = board.STEMMA_I2C()
+            bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
+            bme.mode = adafruit_bme280.MODE_SLEEP
+            self.bme = bme
+
     async def initSensor(self):
         while self.bme is None:
             try:
-                print("Initializing BME")
-                i2c = board.STEMMA_I2C()
-                bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
-                bme.mode = adafruit_bme280.MODE_SLEEP
-                self.bme = bme
+                self.singleInitSensor()
             except Exception as ex:
                 print("Error initializing BME Sensor")
                 print(ex)
@@ -70,12 +74,12 @@ class BMESensorLoop(SensorLoop):
         pressure = self.bme.pressure
         output = {
             "temperature": temperature}
-        self.mqtt_client.publish(self.getTopic("temperature"), json.dumps(output))
+        self.mqtt_client.publish(self.getTopic("temperature"), json.dumps(output), qos=1)
         output = {
             "humidity": relative_humidity}
-        self.mqtt_client.publish(self.getTopic("humidity"), json.dumps(output))
+        self.mqtt_client.publish(self.getTopic("humidity"), json.dumps(output), qos=1)
         output = {
             "pressure": pressure}
-        self.mqtt_client.publish(self.getTopic("pressure"), json.dumps(output))
+        self.mqtt_client.publish(self.getTopic("pressure"), json.dumps(output), qos=1)
         print("Published BME Values")
 
