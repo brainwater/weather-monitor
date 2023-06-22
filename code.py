@@ -182,6 +182,8 @@ def singleRun():
         except Exception as ex:
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
+    # Battery needs a delay between init and reading, else the state of charge is 0
+    # Homeassistant needs a delay between advertising the sensor and sending the value
     time.sleep(0.2)
     for sensor in sensors:
         try:
@@ -190,8 +192,6 @@ def singleRun():
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
     mqtt_client.loop()
-    # HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
-    #time.sleep(0.5)
     mqtt_client.deinit()
     alarms = []
     for sensor in sensors:
