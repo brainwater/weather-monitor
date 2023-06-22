@@ -60,9 +60,9 @@ class BatteryLevelLoop(SensorLoop):
         print(f"Battery state  : {self.sensor.cell_percent:.1f} %")
         output = {
             "battery": battery}
-        self.mqtt_client.publish(self.getTopic("battery"), json.dumps(output))
+        self.mqtt_client.publish(self.getTopic("battery"), json.dumps(output), qos=1)
         output = {
             "batteryvoltage":  batteryvoltage}
-        self.mqtt_client.publish(self.getTopic("batteryvoltage"), json.dumps(output))
+        self.mqtt_client.publish(self.getTopic("batteryvoltage"), json.dumps(output), qos=1)
         print("Published Battery Value")
 
