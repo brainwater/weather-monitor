@@ -172,8 +172,21 @@ def singleRun():
 
     for sensor in sensors:
         try:
-            sensor.singleRun()
-        except ValueError as ex:
+            sensor.singleInitSensor()
+        except Exception as ex:
+            print(ex)
+            print("Error with sensor " + str(sensor) + " so we're skipping")
+    for sensor in sensors:
+        try:
+            sensor.advertiseSensor()
+        except Exception as ex:
+            print(ex)
+            print("Error with sensor " + str(sensor) + " so we're skipping")
+    time.sleep(0.2)
+    for sensor in sensors:
+        try:
+            sensor.sendValue()
+        except Exception as ex:
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
     mqtt_client.loop()
