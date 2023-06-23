@@ -149,16 +149,9 @@ async def runAsync():
         *toRun,
         return_exceptions=True)
 
-def singleRun():
-    connectWifi()
-    pixel.fill((0,0,0))
-    print("Connected to %s!" % secrets["ssid"])
-    mqtt_client = initMqtt()
-    while mqtt_client is None:
-        print("Retry mqtt")
-        time.sleep(1)
-        mqtt_client = initMqtt()
+async def singleRun():
     sensors = []
+    mqtt_client = None
     if 'bme' in config:
         sensors.append(BMESensorLoop(mqtt_client, config['bme']))
     if 'rain_drop' in config:
@@ -176,29 +169,43 @@ def singleRun():
         except Exception as ex:
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
-    for sensor in sensors:
-        try:
-            sensor.advertiseSensor()
-        except Exception as ex:
-            print(ex)
-            print("Error with sensor " + str(sensor) + " so we're skipping")
-    # Battery needs a delay between init and reading, else the state of charge is 0
-    # Homeassistant needs a delay between advertising the sensor and sending the value
-    time.sleep(0.2)
-    for sensor in sensors:
-        try:
-            sensor.sendValue()
-        except Exception as ex:
-            print(ex)
-            print("Error with sensor " + str(sensor) + " so we're skipping")
-    mqtt_client.loop()
-    mqtt_client.deinit()
+    connectWifi()
+    pixel.fill((0,0,0))
+    print("Connected to %s!" % secrets["ssid"])
+    mqtt_client = initMqtt()
+    i = 0
+    while mqtt_client is None and i < 5:
+        print("Retry mqtt")
+        time.sleep(1)
+        mqtt_client = initMqtt()
+        i += 1
+    if i < 5:
+        for sensor in sensors:
+            try:
+                sensor.mqtt_client = mqtt_client
+                sensor.advertiseSensor()
+            except Exception as ex:
+                print(ex)
+                print("Error with sensor " + str(sensor) + " so we're skipping")
+        # Battery needs a delay between init and reading, else the state of charge is 0
+        # Homeassistant needs a delay between advertising the sensor and sending the value
+        time.sleep(0.2)
+        for sensor in sensors:
+            try:
+                sensor.sendValue()
+            except Exception as ex:
+                print(ex)
+                print("Error with sensor " + str(sensor) + " so we're skipping")
+        mqtt_client.loop()
+        # HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
+        #time.sleep(0.5)
+        mqtt_client.deinit()
     alarms = []
     for sensor in sensors:
         alarms += sensor.alarms()
     alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+SensorLoop.UPDATE_DELAY))
     alarm.exit_and_deep_sleep_until_alarms(*alarms)
 
-singleRun()
+asyncio.run(singleRun())
 #showError()
 #asyncio.run(runAsync())
