@@ -198,7 +198,7 @@ async def singleRun():
                 print("Error with sensor " + str(sensor) + " so we're skipping")
         mqtt_client.loop()
         # HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
-        #time.sleep(0.5)
+        time.sleep(0.2)
         mqtt_client.deinit()
     alarms = []
     for sensor in sensors:
