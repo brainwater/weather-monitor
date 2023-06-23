@@ -24,6 +24,8 @@ class BatteryLevelLoop(SensorLoop):
                 await asyncio.sleep(self.INIT_DELAY)
     
     def advertiseSensor(self):
+        if self.sensor is not None:
+            print("Sensor not set, skipping advertise")
         topic = self.getTopic("battery", "/config")
         prefix = secrets['topic_prefix']
         name_prefix = secrets['name_prefix']
@@ -54,6 +56,9 @@ class BatteryLevelLoop(SensorLoop):
         self.mqtt_client.publish(topic, json.dumps(payload))
 
     def sendValue(self):
+        if None == self.sensor:
+            print("Sensor not set, skipping sendValue")
+            return
         battery = self.sensor.cell_percent
         batteryvoltage = self.sensor.cell_voltage
         print(f"Battery voltage: {self.sensor.cell_voltage:.2f} Volts")
