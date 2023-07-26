@@ -1,6 +1,7 @@
 import asyncio
 import board
 import json
+import time
 from adafruit_max1704x import MAX17048
 from sensorloop import SensorLoop
 from secrets import secrets
@@ -9,8 +10,16 @@ class BatteryLevelLoop(SensorLoop):
     sensor = None
 
     def singleInitSensor(self):
-        print("Initializing Battery Level")
+        print("Attempting to initialize Battery Level Sensor")
         i2c = board.STEMMA_I2C()
+        # TODO: this can loop forever!
+        while not i2c.try_lock():
+            print("Waiting on i2c lock!")
+            time.sleep(0.1)
+        if 0x36 not in i2c.scan():
+            i2c.unlock()
+            raise Exception("Unable to find i2c device at 0x36 for MAX17048!")
+        print("Initializing Battery Level")
         self.sensor = MAX17048(i2c)
     
     async def initSensor(self):
