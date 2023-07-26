@@ -176,19 +176,25 @@ async def singleRun():
     if 'battery' in config:
         sensors.append(BatteryLevelLoop(mqtt_client, config['battery']))
 
+    validSensors = []
     for sensor in sensors:
         try:
             sensor.singleInitSensor()
+            validSensors.append(sensor)
         except Exception as ex:
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
+    sensors = validSensors
+    validSensors = []
     for sensor in sensors:
         try:
             sensor.mqtt_client = mqtt_client
             sensor.advertiseSensor()
+            validSensors.append(sensor)
         except Exception as ex:
             print(ex)
             print("Error with sensor " + str(sensor) + " so we're skipping")
+    sensors = validSensors
     # Battery needs a delay between init and reading, else the state of charge is 0
     # Homeassistant needs a delay between advertising the sensor and sending the value
     time.sleep(0.2)

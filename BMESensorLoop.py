@@ -1,6 +1,7 @@
 import asyncio
 import board
 import json
+import time
 from adafruit_bme280 import basic as adafruit_bme280
 from sensorloop import SensorLoop
 from secrets import secrets
@@ -9,11 +10,18 @@ class BMESensorLoop(SensorLoop):
     bme = None
 
     def singleInitSensor(self):
-            print("Initializing BME")
-            i2c = board.STEMMA_I2C()
-            bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
-            bme.mode = adafruit_bme280.MODE_SLEEP
-            self.bme = bme
+        print("Initializing BME")
+        i2c = board.STEMMA_I2C()
+        # TODO: this can loop forever!
+        while not i2c.try_lock():
+            print("Waiting on i2c lock!")
+            time.sleep(0.1)
+        if 0x77 not in i2c.scan():
+            i2c.unlock()
+            raise Exception("Unable to find i2c device at 0x77 for BME280!")
+        bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
+        bme.mode = adafruit_bme280.MODE_SLEEP
+        self.bme = bme
 
     async def initSensor(self):
         while self.bme is None:
@@ -26,6 +34,7 @@ class BMESensorLoop(SensorLoop):
                 await asyncio.sleep(self.INIT_DELAY)
     
     def advertiseSensor(self):
+        print("Advertising BME!")
         topic = self.getTopic("temperature", "/config")
         prefix = secrets['topic_prefix']
         name_prefix = secrets['name_prefix']

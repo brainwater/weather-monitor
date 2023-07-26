@@ -19,6 +19,8 @@ class BatteryLevelLoop(SensorLoop):
         if 0x36 not in i2c.scan():
             i2c.unlock()
             raise Exception("Unable to find i2c device at 0x36 for MAX17048!")
+        else:
+            i2c.unlock()
         print("Initializing Battery Level")
         self.sensor = MAX17048(i2c)
     
@@ -33,6 +35,7 @@ class BatteryLevelLoop(SensorLoop):
                 await asyncio.sleep(self.INIT_DELAY)
     
     def advertiseSensor(self):
+        print("Advertising battery!")
         if self.sensor is not None:
             print("Sensor not set, skipping advertise")
         topic = self.getTopic("battery", "/config")
