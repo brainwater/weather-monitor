@@ -62,7 +62,7 @@ class BatteryLevelLoop(SensorLoop):
             "expire_after": self.EXPIRE_DELAY,
             "payload_available": "online",
             "payload_not_available": "offline",
-            "unique_id": prefix + "batterygauge",
+            "unique_id": prefix + "batteryvoltagegauge",
             "suggested_display_precision": "2",
             "value_template": "{{ value_json.batteryvoltage }}"}
         self.mqtt_client.publish(topic, json.dumps(payload))
