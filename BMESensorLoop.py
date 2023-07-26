@@ -19,6 +19,8 @@ class BMESensorLoop(SensorLoop):
         if 0x77 not in i2c.scan():
             i2c.unlock()
             raise Exception("Unable to find i2c device at 0x77 for BME280!")
+        else:
+            i2c.unlock()
         bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
         bme.mode = adafruit_bme280.MODE_SLEEP
         self.bme = bme
