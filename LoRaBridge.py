@@ -254,6 +254,7 @@ def innerLoop(mqtt_client, rfm9x):
             packet_data = parseSensor(packet)
             packet_data['signal_strength'] = rssi
             print(packet_data)
+            mqtt_client.reconnect()
             try:
                 advertise_and_publish(mqtt_client, packet_data)
             except OSError:
