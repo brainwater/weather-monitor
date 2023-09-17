@@ -81,7 +81,11 @@ class PrecipitationSensorLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": secrets['topic_prefix'] + "raingauge",
             "suggested_display_precision": "1",
-            "value_template": "{{ value_json.precipitation | round(1) }}"}
+            "value_template": "{{ value_json.precipitation | round(1) }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
     
     def sendValue(self):

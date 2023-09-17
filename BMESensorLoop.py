@@ -11,7 +11,7 @@ class BMESensorLoop(SensorLoop):
 
     def singleInitSensor(self):
         print("Initializing BME")
-        i2c = board.STEMMA_I2C()
+        i2c = board.I2C()
         # TODO: this can loop forever!
         while not i2c.try_lock():
             print("Waiting on i2c lock!")
@@ -50,7 +50,11 @@ class BMESensorLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": prefix + "temperaturegauge",
             "suggested_display_precision": "1",
-            "value_template": "{{ value_json.temperature | round(1) }}"}
+            "value_template": "{{ value_json.temperature | round(1) }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
         topic = self.getTopic("humidity", "/config")
         payload = {
@@ -63,7 +67,11 @@ class BMESensorLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": prefix + "humiditygauge",
             "suggested_display_precision": "1",
-            "value_template": "{{ value_json.humidity | round(1) }}"}
+            "value_template": "{{ value_json.humidity | round(1) }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
         topic = self.getTopic("pressure", "/config")
         payload = {
@@ -76,7 +84,11 @@ class BMESensorLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": prefix + "pressuregauge",
             "suggested_display_precision": "1",
-            "value_template": "{{ value_json.pressure | round(1) }}"}
+            "value_template": "{{ value_json.pressure | round(1) }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
     
     def sendValue(self):

@@ -62,7 +62,11 @@ class RainDropSensorLoop(SensorLoop):
             "payload_not_available": "offline",
             "expire_after": self.EXPIRE_DELAY,
             "unique_id": secrets['topic_prefix'] + "raindropsensor",
-            "value_template": "{{ value_json.state }}"}
+            "value_template": "{{ value_json.state }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
     
     def sendValue(self):

@@ -11,7 +11,7 @@ class BatteryLevelLoop(SensorLoop):
 
     def singleInitSensor(self):
         print("Attempting to initialize Battery Level Sensor")
-        i2c = board.STEMMA_I2C()
+        i2c = board.I2C()
         # TODO: this can loop forever!
         while not i2c.try_lock():
             print("Waiting on i2c lock!")
@@ -51,7 +51,11 @@ class BatteryLevelLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": prefix + "batterygauge",
             "suggested_display_precision": "0",
-            "value_template": "{{ value_json.battery | round(1) }}"}
+            "value_template": "{{ value_json.battery | round(1) }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
         topic = self.getTopic("batteryvoltage", "/config")
         payload = {
@@ -64,7 +68,11 @@ class BatteryLevelLoop(SensorLoop):
             "payload_not_available": "offline",
             "unique_id": prefix + "batteryvoltagegauge",
             "suggested_display_precision": "2",
-            "value_template": "{{ value_json.batteryvoltage }}"}
+            "value_template": "{{ value_json.batteryvoltage }}",
+            "device": {
+                "name": secrets['name_prefix'],
+                "identifiers": secrets['topic_prefix']
+            }}
         self.mqtt_client.publish(topic, json.dumps(payload))
 
     def sendValue(self):
