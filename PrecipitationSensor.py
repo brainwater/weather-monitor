@@ -4,22 +4,34 @@ import alarm
 import board
 import digitalio
 import json
-from sensorloop import SensorLoop
+from Sensor import Sensor
 from secrets import secrets
 
-class PrecipitationSensorLoop(SensorLoop):
+class PrecipitationSensor(Sensor):
     precipitationIn = None
     #precipitationCount = 0
+    backgroundTask = None
     
     async def watchPrecipitationSensor(self):
         while True:
             lastPrecipitation = self.precipitationIn.value
             while lastPrecipitation == self.precipitationIn.value:
                 await asyncio.sleep(self.SWITCH_DELAY)
-            #self.precipitationCount += 1
-            self.incrementCount
+            lastPrecipitation = self.precipitationIn.value
+            self.incrementCount()
+            # Avoid detecting bounces
+            await asyncio.sleep(0.2)
 
-    def alarms(self):
+    async def alarms(self):
+        # We must release the pin before we can create the alarm
+        if self.backgroundTask is not None:
+            self.backgroundTask.cancel()
+            try:
+                await self.backgroundTask
+            except:
+                # Cancelled task throws an exception/error
+                pass
+        self.precipitationIn.deinit()
         pin_alarm = alarm.pin.PinAlarm(pin=self.config['pin'], value=False, pull=True)
         return [pin_alarm]
 
@@ -39,34 +51,25 @@ class PrecipitationSensorLoop(SensorLoop):
         for i, b in enumerate(count.to_bytes(4, sys.byteorder)):
             alarm.sleep_memory[i] = b
 
-    def singleInitSensor(self):
-        if alarm.wake_alarm is None:
-            return
-        if not isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
-            return
-        # Increment by 2 since the count is the count of the changes in pin state, with sleep we're only counting when it goes low
-        self.incrementCount()
-        self.incrementCount()
+    async def init(self):
+        print("Initializing Precipitation Sensor")
+        if (alarm.wake_alarm is not None) and isinstance(alarm.wake_alarm, alarm.pin.PinAlarm):
+            # Increment by 2 since the count is the count of the changes in pin state, with sleep we're only counting when it goes low
+            self.incrementCount()
+            self.incrementCount()
+
+        try:
+            self.precipitationIn = digitalio.DigitalInOut(self.config['pin'])
+            self.precipitationIn.direction = digitalio.Direction.INPUT
+            self.precipitationIn.pull = digitalio.Pull.UP
+            print("Initialized Precipitation Sensor")
+            # Wait until we have a change in the precipitation sensor before continuing
+            self.backgroundTask = asyncio.create_task(self.watchPrecipitationSensor())
+        except Exception as ex:
+            print("Error initializing Precipitation sensor!")
+            print(ex)
+            self.precipitationIn = None
         
-    async def initSensor(self):
-        while self.precipitationIn is None:
-            try:
-                self.precipitationIn = digitalio.DigitalInOut(self.config['pin'])
-                self.precipitationIn.direction = digitalio.Direction.INPUT
-                self.precipitationIn.pull = digitalio.Pull.UP
-            except Exception as ex:
-                print("Error initializing Precipitation sensor!")
-                print(ex)
-                self.precipitationIn = None
-                await asyncio.sleep(self.INIT_DELAY)
-        print("Initialized Precipitation Sensor")
-        # Wait until we have a change in the precipitation sensor before continuing
-        precipitationValue = self.precipitationIn.value
-        while precipitationValue == self.precipitationIn.value:
-            await asyncio.sleep(self.SWITCH_DELAY)
-        print("Detected first change on precipitation sensor")
-        asyncio.create_task(self.watchPrecipitationSensor())
-    
     def advertiseSensor(self):
         # Don't publish unless we've sensed rain already
         if self.countFromMemory() <= 0:
@@ -92,6 +95,7 @@ class PrecipitationSensorLoop(SensorLoop):
         print("Sending Precipiation Value")
         output = {
             "precipitation": self.countFromMemory() / 3.467}
+        print(output)
         self.mqtt_client.publish(self.getTopic("precipitation"), json.dumps(output), qos=1)
         print("Sent Precipiation Value")
 

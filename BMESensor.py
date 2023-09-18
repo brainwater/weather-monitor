@@ -3,13 +3,13 @@ import board
 import json
 import time
 from adafruit_bme280 import basic as adafruit_bme280
-from sensorloop import SensorLoop
+from Sensor import Sensor
 from secrets import secrets
 
-class BMESensorLoop(SensorLoop):
+class BMESensor(Sensor):
     bme = None
 
-    def singleInitSensor(self):
+    async def init(self):
         print("Initializing BME")
         i2c = board.I2C()
         # TODO: this can loop forever!
@@ -24,16 +24,6 @@ class BMESensorLoop(SensorLoop):
         bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
         bme.mode = adafruit_bme280.MODE_SLEEP
         self.bme = bme
-
-    async def initSensor(self):
-        while self.bme is None:
-            try:
-                self.singleInitSensor()
-            except Exception as ex:
-                print("Error initializing BME Sensor")
-                print(ex)
-                self.bme = None
-                await asyncio.sleep(self.INIT_DELAY)
     
     def advertiseSensor(self):
         print("Advertising BME!")

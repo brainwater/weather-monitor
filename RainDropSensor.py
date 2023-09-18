@@ -3,11 +3,11 @@ import board
 import digitalio
 import json
 from adafruit_bme280 import basic as adafruit_bme280
-from sensorloop import SensorLoop
+from Sensor import Sensor
 from secrets import secrets
 import traceback
 
-class RainDropSensorLoop(SensorLoop):
+class RainDropSensor(Sensor):
     dropDIn = None
     
     def getTopic(self, sensorType, postfix="/state"):
@@ -31,26 +31,11 @@ class RainDropSensorLoop(SensorLoop):
             raise ex
         return json.dumps(output)
 
-    def singleInitSensor(self):
+    async def init(self):
         print("Intializing Rain Drop Sensor")
         self.dropDIn = digitalio.DigitalInOut(self.config['pin'])
         self.dropDIn.direction = digitalio.Direction.INPUT
         self.dropDIn.pull = digitalio.Pull.UP
-    async def initSensor(self):
-        while self.dropDIn is None:
-            try:
-                self.singleInitSensor()
-            except Exception as ex:
-                print("Error initializing Rain Drop sensor!")
-                print(ex)
-                self.dropDIn = None
-                await asyncio.sleep(self.INIT_DELAY)
-        print("Initialized Rain Drop Sensor")
-        # Wait until we have a change in the rain sensor before continuing
-        initialValue = self.isRaining()
-        while initialValue == self.isRaining():
-            await asyncio.sleep(self.UPDATE_DELAY)
-        print("Detected first change on Rain Drop Sensor")
     
     def advertiseSensor(self):
         topic = self.getTopic("rain_drop", "/config")

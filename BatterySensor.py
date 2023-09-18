@@ -3,13 +3,13 @@ import board
 import json
 import time
 from adafruit_max1704x import MAX17048
-from sensorloop import SensorLoop
+from Sensor import Sensor
 from secrets import secrets
 
-class BatteryLevelLoop(SensorLoop):
+class BatterySensor(Sensor):
     sensor = None
 
-    def singleInitSensor(self):
+    async def init(self):
         print("Attempting to initialize Battery Level Sensor")
         i2c = board.I2C()
         # TODO: this can loop forever!
@@ -23,16 +23,6 @@ class BatteryLevelLoop(SensorLoop):
             i2c.unlock()
         print("Initializing Battery Level")
         self.sensor = MAX17048(i2c)
-    
-    async def initSensor(self):
-        while self.sensor is None:
-            try:
-                self.singleInitSensor()
-            except Exception as ex:
-                print("Error initializing Bettery Level Sensor")
-                print(ex)
-                self.sensor = None
-                await asyncio.sleep(self.INIT_DELAY)
     
     def advertiseSensor(self):
         print("Advertising battery!")
@@ -75,6 +65,9 @@ class BatteryLevelLoop(SensorLoop):
             }}
         self.mqtt_client.publish(topic, json.dumps(payload))
 
+    def onWake(self):
+        pass
+
     def sendValue(self):
         if None == self.sensor:
             print("Sensor not set, skipping sendValue")
@@ -90,4 +83,3 @@ class BatteryLevelLoop(SensorLoop):
             "batteryvoltage":  batteryvoltage}
         self.mqtt_client.publish(self.getTopic("batteryvoltage"), json.dumps(output), qos=1)
         print("Published Battery Value")
-
