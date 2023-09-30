@@ -1,36 +1,49 @@
 import time
-import alarm
 import ssl
 import json
 import asyncio
-import alarm
+import supervisor
 import board
 import digitalio
 import socketpool
 import wifi
 import neopixel
-import countio
 import adafruit_minimqtt.adafruit_minimqtt as MQTT
-from adafruit_bme280 import basic as adafruit_bme280
 
 from Sensor import Sensor
-from BMESensor import BMESensor
-from RainDropSensor import RainDropSensor
-from PrecipitationSensor import PrecipitationSensor
-from BatterySensor import BatterySensor
 
 from config import config
 
-pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
-pixel.fill((20, 0, 0))
+if 'alarm' in config:
+    import alarm
+if 'bme' in config:
+    from BMESensor import BMESensor
+if 'rain_drop' in config:
+    from RainDropSensor import RainDropSensor
+if 'precipitation' in config:
+    from PrecipitationSensor import PrecipitationSensor
+if 'battery' in config:
+    from BatterySensor import BatterySensor
+if 'pressure' in config:
+    from PressureSensor import PressureSensor
+if 'valve' in config:
+    from ValveSensor import ValveSensor
+
+if hasattr(board, 'NEOPIXEL'):
+    pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
+    pixel.fill((20, 0, 0))
 
 def showFinish():
+    if not hasattr(board, 'NEOPIXEL'):
+        return
     while True:
         pixel.fill((0, 255, 0))
         time.sleep(0.5)
         pixel.fill((0, 0, 0))
         time.sleep(0.5)
 def showError():
+    if not hasattr(board, 'NEOPIXEL'):
+        return
     while True:
         pixel.fill((255, 0, 0))
         time.sleep(0.5)
@@ -43,7 +56,9 @@ except ImportError:
     showError()
     raise
 
-def initMqtt():
+def initMqtt(mqtt=None):
+    if mqtt is not None and mqtt.is_connected():
+        return mqtt
     try:
         print("Initializing Mqtt")
         # Create a socket pool
@@ -74,10 +89,12 @@ def connectWifi():
     try:
         wifi.radio.connect(secrets['ssid'], secrets['password'])
     except Exception as ex:
-        pixel.fill((50,0,0))
+        if hasattr(board, 'NEOPIXEL'):
+            pixel.fill((50,0,0))
         print(ex)
     while not wifi.radio.connected:
-        pixel.fill((50,0,0))
+        if not hasattr(board, 'NEOPIXEL'):
+            pixel.fill((50,0,0))
         try:
             wifi.radio.connect(secrets['ssid'], secrets['password'])
         except Exception as ex:
@@ -107,15 +124,18 @@ async def mqttCheckLoop(mqtt_client):
             print("Exception when checking mqtt connection!")
         print("Connected? ", isConnected)
         if isConnected:
-            pixel.fill((0,0,0))
+            if hasattr(board, 'NEOPIXEL'):
+                pixel.fill((0,0,0))
         if not isConnected:
-            pixel.fill((50,0,0))
+            if hasattr(board, 'NEOPIXEL'):
+                pixel.fill((50,0,0))
             try:
                 connectWifi()
                 if wifi.radio.connected:
                     mqtt_client.reconnect()
                     if mqttConnected(mqtt_client):
-                        pixel.fill((0,0,0))
+                        if 'NEOPIXEL' in board:
+                            pixel.fill((0,0,0))
                 else:
                     print("Wifi disconnected!")
             except Exception as ex:
@@ -135,6 +155,10 @@ async def singleRun():
         sensors.append(RainDropSensor(mqtt_client, config['rain_drop']))
     if 'battery' in config:
         sensors.append(BatterySensor(mqtt_client, config['battery']))
+    if 'pressure' in config:
+        sensors.append(PressureSensor(mqtt_client, config['pressure']))
+    if 'valve' in config:
+        sensors.append(ValveSensor(mqtt_client, config['valve']))
     validSensors = []
     for sensor in sensors:
         try:
@@ -147,51 +171,66 @@ async def singleRun():
     sensors = validSensors
     validSensors = []
     # Initialize wifi and mqtt
-    connectWifi()
-    pixel.fill((0,0,0))
-    print("Connected to %s!" % secrets["ssid"])
-    mqtt_client = initMqtt()
-    i = 0
-    while mqtt_client is None and i < 5:
-        print("Retry mqtt")
-        time.sleep(1)
-        mqtt_client = initMqtt()
-        i += 1
-    if i >= 5:
-        print("Error initializing mqtt!!!")
-        return
-    # Done initializing networking
-
-    for sensor in sensors:
-        try:
+    mqtt_client = None
+    sensorerrors = []
+    ADVERTISE_DELAY = 100
+    # Make time since last advertise time be longer than ADVERTISE_DELAY
+    lastadvertise = 0.0 - (2*ADVERTISE_DELAY)
+    while True:
+        connectWifi()
+        if hasattr(board, 'NEOPIXEL'):
+            pixel.fill((0,0,0))
+        print("Connected to %s!" % secrets["ssid"])
+        mqtt_client = initMqtt(mqtt_client)
+        i = 0
+        while mqtt_client is None and i < 5:
+            print("Retry mqtt")
+            time.sleep(1)
+            mqtt_client = initMqtt(mqtt_client)
+            i += 1
+        if i >= 5:
+            print("Error initializing mqtt!!!")
+            return
+        # Done initializing networking
+        for sensor in sensors:
             sensor.mqtt_client = mqtt_client
-            sensor.advertiseSensor()
-            validSensors.append(sensor)
-        except Exception as ex:
-            print(ex)
-            print("Error with sensor " + str(sensor) + " so we're skipping")
-    sensors = validSensors
-    # Battery needs a delay between init and reading, else the state of charge is 0
-    # Homeassistant needs a delay between advertising the sensor and sending the value
-    time.sleep(0.2)
-    for sensor in sensors:
-        try:
-            sensor.sendValue()
-        except Exception as ex:
-            print(ex)
-            print("Error with sensor " + str(sensor) + " so we're skipping")
-    mqtt_client.loop()
-    # HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
-    #time.sleep(0.5)
-    mqtt_client.deinit()
-    alarms = []
-    #sensorAlarmLists = await asyncio.gather([i.alarms() for i in sensors])
-    for sensor in sensors:
-        alarms += await sensor.alarms()
-    #for sensor in sensors:
-    #    alarms += sensor.alarms()
-    alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+Sensor.UPDATE_DELAY))
-    alarm.exit_and_deep_sleep_until_alarms(*alarms)
+        mqtt_client.loop()
+        if time.monotonic() > lastadvertise + ADVERTISE_DELAY:
+            for sensor in sensors:
+                try:
+                    sensor.advertiseSensor()
+                    validSensors.append(sensor)
+                except Exception as ex:
+                    print(ex)
+                    print("Error with sensor " + str(sensor) + " so we're skipping")
+                    sensorerrors.append(sensor)
+            sensors = validSensors
+            validSensors = []
+            lastadvertise = time.monotonic()
+        # Battery needs a delay between init and reading, else the state of charge is 0
+        # Homeassistant needs a delay between advertising the sensor and sending the value
+        mqtt_client.loop(0.2)
+        #time.sleep(0.2)
+        for sensor in sensors:
+            try:
+                sensor.sendValue()
+            except Exception as ex:
+                print(ex)
+                print("Error with sensor " + str(sensor) + " so we're skipping")
+        mqtt_client.loop()
+        #  HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
+        #  time.sleep(0.5)
+        #mqtt_client.deinit()
+        if 'alarm' in config:
+            alarms = []
+            #sensorAlarmLists = await asyncio.gather([i.alarms() for i in sensors])
+            for sensor in sensors:
+                alarms += await sensor.alarms()
+            alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+Sensor.UPDATE_DELAY))
+            alarm.exit_and_deep_sleep_until_alarms(*alarms)
+        elif len(sensorerrors) > 0:
+            # Reset to hopefully resolve sensor error(s)
+            supervisor.reload()
 
 asyncio.run(singleRun())
 #showError()

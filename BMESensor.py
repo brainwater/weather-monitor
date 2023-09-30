@@ -74,7 +74,7 @@ class BMESensor(Sensor):
             "payload_not_available": "offline",
             "unique_id": prefix + "pressuregauge",
             "suggested_display_precision": "1",
-            "value_template": "{{ value_json.pressure | round(1) }}",
+            "value_template": "{{ value_json.pressure | round(2) }}",
             "device": {
                 "name": secrets['name_prefix'],
                 "identifiers": secrets['topic_prefix']
