@@ -11,7 +11,7 @@ from secrets import secrets
 class ValveSensor(Sensor):
     mprls = None
     ADDRESS = 0x18
-    FREQUENCY = 3000
+    FREQUENCY = 30000
     DUTY_START = 2 ** 16 - 1
     DUTY_ON = 2 ** 12 + 2 ** 10 #+ 2 ** 8 * 2
     valve = None
