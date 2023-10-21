@@ -8,6 +8,7 @@ from secrets import secrets
 
 class BMESensor(Sensor):
     bme = None
+    bme_addrs = [0x77, 0x76]
 
     async def init(self):
         print("Initializing BME")
@@ -16,12 +17,18 @@ class BMESensor(Sensor):
         while not i2c.try_lock():
             print("Waiting on i2c lock!")
             time.sleep(0.1)
-        if 0x77 not in i2c.scan():
+        i2c_addr = None
+        for a in self.bme_addrs:
+            i2c_addr = a
+            if i2c_addr in i2c.scan():
+                break
+            i2c_addr = None
+        if i2c_addr is None:
             i2c.unlock()
-            raise Exception("Unable to find i2c device at 0x77 for BME280!")
+            raise Exception("Unable to find i2c device at 0x77 or 0x76 for BME280!")
         else:
             i2c.unlock()
-        bme = adafruit_bme280.Adafruit_BME280_I2C(i2c)
+        bme = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=i2c_addr)
         bme.mode = adafruit_bme280.MODE_SLEEP
         self.bme = bme
     
