@@ -28,6 +28,10 @@ if 'pressure' in config:
     from PressureSensor import PressureSensor
 if 'valve' in config:
     from ValveSensor import ValveSensor
+if 'sprinkler' in config:
+    from SprinklerPressureSensor import SprinklerPressureSensor
+if 'flow' in config:
+    from FlowSensor import FlowSensor
 
 if hasattr(board, 'NEOPIXEL'):
     pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
@@ -78,6 +82,7 @@ def initMqtt(mqtt=None):
     except Exception as ex:
         print(ex)
         mqtt_client = None
+        connectWifi()
         return None
 
 def isConnected():
@@ -159,6 +164,10 @@ async def singleRun():
         sensors.append(PressureSensor(mqtt_client, config['pressure']))
     if 'valve' in config:
         sensors.append(ValveSensor(mqtt_client, config['valve']))
+    if 'sprinkler' in config:
+        sensors.append(SprinklerPressureSensor(mqtt_client, config['sprinkler']))
+    if 'flow' in config:
+        sensors.append(FlowSensor(mqtt_client, config['flow']))
     validSensors = []
     for sensor in sensors:
         try:
@@ -177,59 +186,65 @@ async def singleRun():
     # Make time since last advertise time be longer than ADVERTISE_DELAY
     lastadvertise = 0.0 - (2*ADVERTISE_DELAY)
     while True:
-        connectWifi()
-        if hasattr(board, 'NEOPIXEL'):
-            pixel.fill((0,0,0))
-        print("Connected to %s!" % secrets["ssid"])
-        mqtt_client = initMqtt(mqtt_client)
-        i = 0
-        while mqtt_client is None and i < 5:
-            print("Retry mqtt")
-            time.sleep(1)
+        try:
+            connectWifi()
+            if hasattr(board, 'NEOPIXEL'):
+                pixel.fill((0,0,0))
+            print("Connected to %s!" % secrets["ssid"])
             mqtt_client = initMqtt(mqtt_client)
-            i += 1
-        if i >= 5:
-            print("Error initializing mqtt!!!")
-            return
-        # Done initializing networking
-        for sensor in sensors:
-            sensor.mqtt_client = mqtt_client
-        mqtt_client.loop()
-        if time.monotonic() > lastadvertise + ADVERTISE_DELAY:
+            i = 0
+            while mqtt_client is None and i < 5:
+                print("Retry mqtt")
+                time.sleep(1)
+                mqtt_client = initMqtt(mqtt_client)
+                i += 1
+            if i >= 5:
+                print("Error initializing mqtt!!!")
+                return
+            # Done initializing networking
+            for sensor in sensors:
+                sensor.mqtt_client = mqtt_client
+            mqtt_client.loop()
+            if time.monotonic() > lastadvertise + ADVERTISE_DELAY:
+                for sensor in sensors:
+                    try:
+                        sensor.advertiseSensor()
+                        validSensors.append(sensor)
+                    except Exception as ex:
+                        print(ex)
+                        print("Error with sensor " + str(sensor) + " so we're skipping")
+                        sensorerrors.append(sensor)
+                sensors = validSensors
+                validSensors = []
+                lastadvertise = time.monotonic()
+            # Battery needs a delay between init and reading, else the state of charge is 0
+            # Homeassistant needs a delay between advertising the sensor and sending the value
+            mqtt_client.loop(0.2)
+            #time.sleep(0.2)
             for sensor in sensors:
                 try:
-                    sensor.advertiseSensor()
-                    validSensors.append(sensor)
+                    sensor.sendValue()
                 except Exception as ex:
                     print(ex)
                     print("Error with sensor " + str(sensor) + " so we're skipping")
-                    sensorerrors.append(sensor)
-            sensors = validSensors
-            validSensors = []
-            lastadvertise = time.monotonic()
-        # Battery needs a delay between init and reading, else the state of charge is 0
-        # Homeassistant needs a delay between advertising the sensor and sending the value
-        mqtt_client.loop(0.2)
-        #time.sleep(0.2)
-        for sensor in sensors:
-            try:
-                sensor.sendValue()
-            except Exception as ex:
-                print(ex)
-                print("Error with sensor " + str(sensor) + " so we're skipping")
-        mqtt_client.loop()
-        #  HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
-        #  time.sleep(0.5)
-        #mqtt_client.deinit()
-        if 'alarm' in config:
-            alarms = []
-            #sensorAlarmLists = await asyncio.gather([i.alarms() for i in sensors])
-            for sensor in sensors:
-                alarms += await sensor.alarms()
-            alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+Sensor.UPDATE_DELAY))
-            alarm.exit_and_deep_sleep_until_alarms(*alarms)
-        elif len(sensorerrors) > 0:
-            # Reset to hopefully resolve sensor error(s)
+            mqtt_client.loop()
+            #  HomeAssistant isn't getting the sensor values, especially the ones that are published later without the sleep
+            #  time.sleep(0.5)
+            #mqtt_client.deinit()
+            if 'alarm' in config:
+                alarms = []
+                #sensorAlarmLists = await asyncio.gather([i.alarms() for i in sensors])
+                for sensor in sensors:
+                    alarms += await sensor.alarms()
+                alarms.append(alarm.time.TimeAlarm(monotonic_time=time.monotonic()+Sensor.UPDATE_DELAY))
+                alarm.exit_and_deep_sleep_until_alarms(*alarms)
+            elif len(sensorerrors) > 0:
+                # Reset to hopefully resolve sensor error(s)
+                supervisor.reload()
+        except Exception as ex:
+            print(ex)
+            print("Exception during main loop! Sleeping for 60 seconds then resetting board!")
+            time.sleep(60)
             supervisor.reload()
 
 asyncio.run(singleRun())
