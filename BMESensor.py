@@ -12,7 +12,10 @@ class BMESensor(Sensor):
 
     async def init(self):
         print("Initializing BME")
-        i2c = board.I2C()
+        if 'i2c' in self.config:
+            i2c = self.config['i2c']
+        else:
+            i2c = board.I2C()
         # TODO: this can loop forever!
         while not i2c.try_lock():
             print("Waiting on i2c lock!")
